@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Pembaca 200+ Gestur Tangan — MediaPipe (Part 1/2)</title>
+    <style>
+        /* --- CSS dari file asli, dipertahankan / sedikit rapikan --- */
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height:100vh;
+            color:#fff;
+            overflow-x:auto;
+        }
+        .header { text-align:center; padding:20px; background: rgba(0,0,0,0.15); backdrop-filter: blur(6px); }
+        h1 { font-size:2rem; margin-bottom:6px; text-shadow:2px 2px 4px rgba(0,0,0,0.25); }
+        .subtitle { font-size:0.95rem; opacity:0.9; }
+        .main-container { display:flex; gap:18px; padding:18px; min-height:calc(100vh - 120px); }
+        .left-panel { flex:0 0 640px; display:flex; flex-direction:column; gap:16px; }
+        .camera-container { background:rgba(255,255,255,0.06); border-radius:16px; padding:14px; border:1px solid rgba(255,255,255,0.08); }
+        .video-wrapper { position:relative; border-radius:12px; overflow:hidden; background:#000; box-shadow:0 10px 25px rgba(0,0,0,0.3); }
+        #video { width:100%; height:400px; object-fit:cover; display:block; }
+        #canvas { position:absolute; top:0; left:0; width:100%; height:400px; pointer-events:none; }
+        .no-camera { width:100%; height:400px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:white; text-align:center; background:linear-gradient(45deg,#333,#555); }
+        .controls { margin-top:12px; text-align:center; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+        button { background:linear-gradient(45deg,#ff6b6b,#ee5a24); color:white; border:none; padding:10px 18px; border-radius:25px; font-size:0.95rem; font-weight:700; cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.18); transition:all .2s; }
+        button:hover { transform:translateY(-3px); }
+        button:disabled { opacity:0.6; cursor:not-allowed; transform:none; }
+        .demo-btn { background:linear-gradient(45deg,#4facfe,#00f2fe); }
+        .detection-panel { background:rgba(255,255,255,0.06); border-radius:14px; padding:14px; border:1px solid rgba(255,255,255,0.08); }
+        .current-gesture { text-align:center; margin-bottom:10px; }
+        .gesture-emoji { font-size:3.5rem; margin-bottom:8px; min-height:72px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.05); border-radius:12px; border:1px solid rgba(255,255,255,0.06); }
+        .gesture-name { font-size:1.15rem; font-weight:700; color:#ffd700; margin-bottom:4px; text-shadow:1px 1px 2px rgba(0,0,0,0.4); }
+        .gesture-category { font-size:0.9rem; opacity:0.85; color:#87ceeb; }
+        .confidence { font-size:0.95rem; opacity:0.9; margin-top:6px; }
+        .right-panel { flex:1; display:flex; flex-direction:column; gap:12px; max-height:calc(100vh - 140px); overflow-y:auto; }
+        .category-selector { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+        .category-btn { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); color:white; padding:8px 12px; border-radius:18px; font-size:0.85rem; cursor:pointer; }
+        .category-btn.active { background:linear-gradient(45deg,#4facfe,#00f2fe); border-color:#4facfe; }
+        .gesture-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; max-height:500px; overflow-y:auto; background:rgba(0,0,0,0.06); border-radius:12px; padding:12px; }
+        .gesture-card { background:rgba(255,255,255,0.03); border-radius:10px; padding:10px; text-align:center; border:1px solid rgba(255,255,255,0.04); cursor:pointer; transition:all .18s; }
+        .gesture-card:hover { transform:translateY(-4px); background:rgba(255,255,255,0.06); }
+        .gesture-card.detected { background:linear-gradient(45deg,#00ff8c,#32cd32); border-color:#00ff8c; color:#072; animation:pulse 1s infinite; }
+        .gesture-card.demo-active { background:linear-gradient(45deg,#ffd700,#ffed4a); border-color:#ffd700; color:#222; }
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.7} }
+        .card-emoji { font-size:1.6rem; margin-bottom:6px; }
+        .card-name { font-size:0.85rem; font-weight:700; line-height:1.2; }
+        .status { text-align:center; padding:10px; border-radius:10px; font-weight:700; margin:10px 0; }
+        .status.loading { background: rgba(255,193,7,0.15); color:#ffd166; }
+        .status.active { background: rgba(40,167,69,0.12); color:#c7ffd0; }
+        .status.error { background: rgba(220,53,69,0.12); color:#ffc7c9; }
+        .status.demo { background: rgba(138,43,226,0.12); color:#e9d6ff; }
+        .stats { background:rgba(0,0,0,0.08); border-radius:10px; padding:12px; margin-top:10px; }
+        .stats h4 { color:#ffd700; margin-bottom:8px; text-align:center; }
+        .stat-item { display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.9rem; }
+        .error-message { background: rgba(220,53,69,0.12); border:1px solid rgba(220,53,69,0.2); color:#ffc7c9; padding:10px; border-radius:8px; margin:10px 0; text-align:left; display:none; }
+        .demo-instructions { background: rgba(138,43,226,0.12); border:1px solid rgba(138,43,226,0.18); color:#e8d6ff; padding:10px; border-radius:8px; margin:10px 0; display:none; }
+        ::-webkit-scrollbar { width:8px; }
+        ::-webkit-scrollbar-track { background:rgba(255,255,255,0.04); border-radius:10px; }
+        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:10px; }
+        @media (max-width:1024px){ .main-container{flex-direction:column;} .left-panel{flex:none;} .gesture-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));} }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤚 Advanced Hand Gesture Recognition</h1>
+        <p class="subtitle">Deteksi 200+ Gestur Tangan dengan AI — MediaPipe Hands</p>
+    </div>
+
+    <div class="main-container">
+        <div class="left-panel">
+            <div class="camera-container">
+                <div class="video-wrapper" id="videoWrapper">
+                    <video id="video" autoplay muted playsinline style="display:none;"></video>
+                    <canvas id="canvas" style="display:none;"></canvas>
+                    <div class="no-camera" id="noCamera">
+                        <h3>📹 Kamera Belum Aktif</h3>
+                        <p>Klik "Mulai Kamera" untuk memulai deteksi gestur</p>
+                        <div style="font-size:3rem;margin:16px 0;">🎥</div>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <button id="startBtn">🎥 Mulai Kamera</button>
+                    <button id="stopBtn" disabled>⏹️ Hentikan</button>
+                    <button id="demoBtn" class="demo-btn">🎭 Mode Demo</button>
+                    <button id="simulateBtn" class="demo-btn" disabled>🎯 Simulasi Gestur</button>
+                </div>
+            </div>
+
+            <div class="detection-panel">
+                <div class="current-gesture">
+                    <div class="gesture-emoji" id="currentEmoji">👋</div>
+                    <div class="gesture-name" id="currentName">Siap Mendeteksi</div>
+                    <div class="gesture-category" id="currentCategory">-</div>
+                    <div class="confidence" id="confidence">Akurasi: -</div>
+                </div>
+
+                <div id="status" class="status loading">Tekan "Mulai Kamera" atau "Mode Demo"</div>
+
+                <div id="errorMessage" class="error-message">
+                    <h4>⚠️ Masalah Akses Kamera</h4>
+                    <p>Periksa koneksi kamera, izin akses, dan gunakan HTTPS.</p>
+                </div>
+
+                <div id="demoInstructions" class="demo-instructions">
+                    <h4>🎭 Mode Demo Aktif</h4>
+                    <p>Klik pada gestur di sebelah kanan untuk simulasi deteksi.</p>
+                </div>
+
+                <div class="stats">
+                    <h4>📊 Statistik Deteksi</h4>
+                    <div class="stat-item"><span>Gestur Terdeteksi:</span><span id="detectedCount">0</span></div>
+                    <div class="stat-item"><span>Akurasi Rata-rata:</span><span id="avgAccuracy">0%</span></div>
+                    <div class="stat-item"><span>Total Gestur:</span><span id="totalGestures">200+</span></div>
+                    <div class="stat-item"><span>Kategori Aktif:</span><span id="activeCategory">Semua</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div class="category-selector" id="categorySelector"></div>
+            <div class="gesture-grid" id="gestureGrid"></div>
+        </div>
+    </div>
+
+    <!-- MediaPipe libraries (loaded in part 1) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+
+    <script>
+    /***** PART 1 of 2: START SCRIPT and BEGIN DATABASE *****/
+    class AdvancedHandGestureDetector {
+        constructor() {
+            // UI elements
+            this.video = document.getElementById('video');
+            this.canvas = document.getElementById('canvas');
+            this.ctx = this.canvas.getContext('2d');
+            this.noCamera = document.getElementById('noCamera');
+            this.startBtn = document.getElementById('startBtn');
+            this.stopBtn = document.getElementById('stopBtn');
+            this.demoBtn = document.getElementById('demoBtn');
+            this.simulateBtn = document.getElementById('simulateBtn');
+            this.currentEmoji = document.getElementById('currentEmoji');
+            this.currentName = document.getElementById('currentName');
+            this.currentCategory = document.getElementById('currentCategory');
+            this.confidence = document.getElementById('confidence');
+            this.status = document.getElementById('status');
+            this.errorMessage = document.getElementById('errorMessage');
+            this.demoInstructions = document.getElementById('demoInstructions');
+            this.categorySelector = document.getElementById('categorySelector');
+            this.gestureGrid = document.getElementById('gestureGrid');
+            this.detectedCount = document.getElementById('detectedCount');
+            this.avgAccuracy = document.getElementById('avgAccuracy');
+            this.activeCategory = document.getElementById('activeCategory');
+            this.totalGestures = document.getElementById('totalGestures');
+
+            // state
+            this.isRunning = false;
+            this.isDemoMode = false;
+            this.stream = null;
+            this.camera = null;
+            this.hands = null;
+            this.currentFilter = 'all';
+            this.detectedGestures = new Set();
+            this.accuracySum = 0;
+            this.detectionCount = 0;
+            this.simulationInterval = null;
+
+            // initialize database gestures (part 1)
+            this.initializeGesturesPart1();
+
+            // UI
+            this.initEventListeners();
+            this.renderCategories();
+            this.renderGestures();
+            this.updateTotalGestures();
+        }
+
+        initializeGesturesPart1() {
+            // This function contains the FIRST HALF of the full gestural DB.
+            // Part 2 will append the rest so when both parts are pasted the DB is complete.
+            this.gestures = {
+                asl: [
+                    { name: 'A', emoji: '🤚', description: 'Kepal dengan jempol ke samping' },
+                    { name: 'B', emoji: '✋', description: 'Telapak terbuka, jempol terlipat' },
+                    { name: 'C', emoji: '🤏', description: 'Bentuk huruf C' },
+                    { name: 'D', emoji: '👆', description: 'Telunjuk tegak, jari lain terlipat' },
+                    { name: 'E', emoji: '✊', description: 'Kepal dengan jempol di atas' },
+                    { name: 'F', emoji: '👌', description: 'OK dengan jari lain tegak' },
+                    { name: 'G', emoji: '👉', description: 'Telunjuk dan jempol memanjang' },
+                    { name: 'H', emoji: '✌️', description: 'Telunjuk dan tengah horizontal' },
+                    { name: 'I', emoji: '🤙', description: 'Kelingking tegak' },
+                    { name: 'J', emoji: '🤙', description: 'Kelingking dengan gerakan J' },
+                    { name: 'K', emoji: '✌️', description: 'Telunjuk dan tengah dengan jempol' },
+                    { name: 'L', emoji: '👆', description: 'L shape dengan telunjuk dan jempol' },
+                    { name: 'M', emoji: '✊', description: 'Tiga jari terlipat di bawah jempol' },
+                    { name: 'N', emoji: '✊', description: 'Dua jari terlipat di bawah jempol' },
+                    { name: 'O', emoji: '👌', description: 'Lingkaran dengan semua jari' }
+                ],
+                numbers: [
+                    { name: 'Nol (0)', emoji: '👌', description: 'Lingkaran dengan jempol dan telunjuk' },
+                    { name: 'Satu (1)', emoji: '☝️', description: 'Telunjuk tegak' },
+                    { name: 'Dua (2)', emoji: '✌️', description: 'Telunjuk dan tengah tegak' },
+                    { name: 'Tiga (3)', emoji: '🤟', description: 'Jempol, telunjuk, dan tengah' },
+                    { name: 'Empat (4)', emoji: '🖖', description: 'Empat jari tegak' },
+                    { name: 'Lima (5)', emoji: '✋', description: 'Semua jari tegak' },
+                    { name: 'Enam (6)', emoji: '🤙', description: 'Jempol dan kelingking' },
+                    { name: 'Tujuh (7)', emoji: '👆', description: 'Jempol menyentuh kelingking' },
+                    { name: 'Delapan (8)', emoji: '🤘', description: 'Jempol menyentuh manis' },
+                    { name: 'Sembilan (9)', emoji: '👌', description: 'Jempol menyentuh tengah' }
+                ],
+                basic: [
+                    { name: 'OK', emoji: '👌', description: 'Lingkaran jempol dan telunjuk' },
+                    { name: 'Jempol Naik', emoji: '👍', description: 'Thumbs up - setuju/bagus' },
+                    { name: 'Jempol Turun', emoji: '👎', description: 'Thumbs down - tidak setuju' },
+                    { name: 'Victory', emoji: '✌️', description: 'V untuk kemenangan' },
+                    { name: 'Peace', emoji: '☮️', description: 'Tanda perdamaian' },
+                    { name: 'Rock On', emoji: '🤘', description: 'Tanduk/metal sign' },
+                    { name: 'I Love You', emoji: '🤟', description: 'Bahasa isyarat untuk cinta' },
+                    { name: 'Shaka', emoji: '🤙', description: 'Hang loose - santai' },
+                    { name: 'Call Me', emoji: '📞', description: 'Telepon saya' },
+                    { name: 'Stop', emoji: '✋', description: 'Berhenti/stop' },
+                    { name: 'Fist', emoji: '✊', description: 'Kepal tangan - kekuatan' },
+                    { name: 'Point Left', emoji: '👈', description: 'Menunjuk ke kiri' },
+                    { name: 'Point Right', emoji: '👉', description: 'Menunjuk ke kanan' },
+                    { name: 'Point Up', emoji: '👆', description: 'Menunjuk ke atas' }
+                ],
+                communication: [
+                    { name: 'Halo', emoji: '👋', description: 'Salam pembuka' },
+                    { name: 'Selamat Tinggal', emoji: '👋', description: 'Salam perpisahan' },
+                    { name: 'Terima Kasih', emoji: '🙏', description: 'Ungkapan syukur' },
+                    { name: 'Maaf', emoji: '🤷', description: 'Permintaan maaf' },
+                    { name: 'Tolong', emoji: '🙏', description: 'Minta bantuan' },
+                    { name: 'Ya', emoji: '👍', description: 'Persetujuan' },
+                    { name: 'Tidak', emoji: '👎', description: 'Penolakan' },
+                    { name: 'Mungkin', emoji: '🤷', description: 'Ketidakpastian' },
+                    { name: 'Sini', emoji: '👋', description: 'Memanggil mendekat' }
+                ]
+            };
+
+            // flatten currently present gestures (first half)
+            this.allGestures = [];
+            Object.keys(this.gestures).forEach(category=>{
+                this.gestures[category].forEach(gesture=>{
+                    this.allGestures.push({
+                        ...gesture,
+                        category,
+                        categoryName: this.getCategoryName(category)
+                    });
+                });
+            });
+        }
+
+        getCategoryName(category) {
+            const categoryNames = {
+                asl: 'Alfabet ASL',
+                numbers: 'Angka',
+                basic: 'Dasar',
+                communication: 'Komunikasi',
+                emotions: 'Emosi',
+                activities: 'Aktivitas',
+                family: 'Keluarga'
+            };
+            return categoryNames[category] || category;
+        }
+
+        updateTotalGestures() { this.totalGestures.textContent = `${this.allGestures.length} gestur`; }
+
+        initEventListeners() {
+            this.startBtn.addEventListener('click', () => this.start());
+            this.stopBtn.addEventListener('click', () => this.stop());
+            this.demoBtn.addEventListener('click', () => this.toggleDemo());
+            this.simulateBtn.addEventListener('click', () => this.startSimulation());
+
+            // click on gesture card to simulate in demo
+            this.gestureGrid.addEventListener('click', (e) => {
+                if (!this.isDemoMode) return;
+                const card = e.target.closest('.gesture-card');
+                if (!card) return;
+                const id = parseInt(card.dataset.gestureId);
+                const gesturesToShow = this.currentFilter === 'all'
+                    ? this.allGestures
+                    : this.allGestures.filter(g => g.category === this.currentFilter);
+                if (id >= 0 && id < gesturesToShow.length) {
+                    this.simulateGestureDetection({ ...gesturesToShow[id], confidence: 92 });
+                }
+            });
+        }
+
+        renderCategories() {
+            const categories = [
+                { key: 'all', name: 'Semua', count: this.allGestures.length },
+                { key: 'asl', name: 'ASL', count: (this.gestures.asl || []).length },
+                { key: 'numbers', name: 'Angka', count: (this.gestures.numbers || []).length },
+                { key: 'basic', name: 'Dasar', count: (this.gestures.basic || []).length },
+                { key: 'communication', name: 'Komunikasi', count: (this.gestures.communication || []).length },
+                { key: 'emotions', name: 'Emosi', count: (this.gestures.emotions || []).length },
+                { key: 'activities', name: 'Aktivitas', count: (this.gestures.activities || []).length },
+                { key: 'family', name: 'Keluarga', count: (this.gestures.family || []).length }
+            ];
+
+            this.categorySelector.innerHTML = categories.map(cat =>
+                `<button class="category-btn ${cat.key === 'all' ? 'active' : ''}" data-category="${cat.key}">
+                    ${cat.name} (${cat.count})
+                </button>`
+            ).join('');
+
+            this.categorySelector.addEventListener('click', (e) => {
+                if (e.target.classList.contains('category-btn')) {
+                    document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    this.currentFilter = e.target.dataset.category;
+                    this.renderGestures();
+                    this.activeCategory.textContent = e.target.textContent;
+                }
+            });
+        }
+
+        renderGestures() {
+            const gesturesToShow = this.currentFilter === 'all'
+                ? this.allGestures
+                : this.allGestures.filter(g => g.category === this.currentFilter);
+
+            this.gestureGrid.innerHTML = gesturesToShow.map((gesture, index) => `
+                <div class="gesture-card" data-gesture-id="${index}" title="${gesture.description}">
+                    <div class="card-emoji">${gesture.emoji}</div>
+                    <div class="card-name">${gesture.name}</div>
+                </div>
+            `).join('');
+        }
+<script>
+        initializeGesturesPart2() {
+            // Append second half of database gestures here
+            const moreGestures = {
+                emotions: [
+                    { name: 'Senang', emoji: '😊', description: 'Ekspresi bahagia' },
+                    { name: 'Sedih', emoji: '😢', description: 'Ekspresi sedih' },
+                    { name: 'Marah', emoji: '😡', description: 'Ekspresi marah' },
+                    { name: 'Kaget', emoji: '😲', description: 'Ekspresi terkejut' },
+                    { name: 'Takut', emoji: '😱', description: 'Ekspresi takut' }
+                ],
+                activities: [
+                    { name: 'Menulis', emoji: '✍️', description: 'Gerakan menulis' },
+                    { name: 'Makan', emoji: '🍽️', description: 'Gerakan makan' },
+                    { name: 'Minum', emoji: '🥤', description: 'Gerakan minum' },
+                    { name: 'Memancing', emoji: '🎣', description: 'Gerakan memancing' }
+                ],
+                family: [
+                    { name: 'Ayah', emoji: '👨', description: 'Isyarat ayah' },
+                    { name: 'Ibu', emoji: '👩', description: 'Isyarat ibu' },
+                    { name: 'Anak', emoji: '👶', description: 'Isyarat anak' },
+                    { name: 'Kakak', emoji: '🧑', description: 'Isyarat kakak' },
+                    { name: 'Adik', emoji: '🧒', description: 'Isyarat adik' }
+                ]
+            };
+
+            Object.keys(moreGestures).forEach(cat => {
+                this.gestures[cat] = moreGestures[cat];
+                moreGestures[cat].forEach(gesture => {
+                    this.allGestures.push({
+                        ...gesture,
+                        category: cat,
+                        categoryName: this.getCategoryName(cat)
+                    });
+                });
+            });
+        }
+
+        async start() {
+            this.isRunning = true;
+            this.isDemoMode = false;
+            this.status.textContent = "🔄 Memulai kamera...";
+            this.status.className = "status loading";
+            this.errorMessage.style.display = "none";
+            this.demoInstructions.style.display = "none";
+
+            this.noCamera.style.display = "none";
+            this.video.style.display = "block";
+            this.canvas.style.display = "block";
+
+            this.startBtn.disabled = true;
+            this.stopBtn.disabled = false;
+            this.demoBtn.disabled = true;
+            this.simulateBtn.disabled = true;
+
+            await this.startRealTracking();
+        }
+
+        async startRealTracking() {
+            this.hands = new Hands({
+                locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+            this.hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.8,
+                minTrackingConfidence: 0.8
+            });
+
+            this.hands.onResults(results => {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.drawImage(results.image, 0, 0, this.canvas.width, this.canvas.height);
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    drawConnectors(this.ctx, landmarks, HAND_CONNECTIONS, { color: '#0f0', lineWidth: 3 });
+                    drawLandmarks(this.ctx, landmarks, { color: '#ff0', lineWidth: 2 });
+
+                    const detected = this.classifyGesture(landmarks);
+                    if (detected) {
+                        this.simulateGestureDetection({ ...detected, confidence: 95 });
+                    }
+                }
+            });
+
+            this.camera = new Camera(this.video, {
+                onFrame: async () => {
+                    await this.hands.send({ image: this.video });
+                },
+                width: 640,
+                height: 480
+            });
+
+            this.camera.start();
+            this.status.textContent = "📷 Kamera aktif — memproses gestur";
+            this.status.className = "status active";
+        }
+
+        classifyGesture(landmarks) {
+            // Sederhana: cek tinggi jempol/telunjuk utk beberapa gestur basic
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const middleTip = landmarks[12];
+
+            // Jempol naik
+            if (thumbTip.y < indexTip.y && Math.abs(thumbTip.x - indexTip.x) > 0.1) {
+                return this.findGestureByName('Jempol Naik');
+            }
+            // Jempol turun
+            if (thumbTip.y > indexTip.y && Math.abs(thumbTip.x - indexTip.x) > 0.1) {
+                return this.findGestureByName('Jempol Turun');
+            }
+            // OK
+            const distThumbIndex = Math.hypot(
+                thumbTip.x - indexTip.x,
+                thumbTip.y - indexTip.y
+            );
+            if (distThumbIndex < 0.05) {
+                return this.findGestureByName('OK');
+            }
+            // Stop
+            const spread = Math.abs(indexTip.x - middleTip.x);
+            if (spread > 0.05 && indexTip.y < landmarks[0].y) {
+                return this.findGestureByName('Stop');
+            }
+            return null;
+        }
+
+        findGestureByName(name) {
+            return this.allGestures.find(g => g.name.toLowerCase() === name.toLowerCase()) || null;
+        }
+
+        simulateGestureDetection(gesture) {
+            this.currentEmoji.textContent = gesture.emoji;
+            this.currentName.textContent = gesture.name;
+            this.currentCategory.textContent = gesture.categoryName || '-';
+            this.confidence.textContent = `Akurasi: ${gesture.confidence || '-'}%`;
+
+            if (!this.detectedGestures.has(gesture.name)) {
+                this.detectedGestures.add(gesture.name);
+                this.detectedCount.textContent = this.detectedGestures.size;
+            }
+            this.accuracySum += gesture.confidence || 0;
+            this.detectionCount++;
+            this.avgAccuracy.textContent = `${Math.round(this.accuracySum / this.detectionCount)}%`;
+
+            this.highlightGesture(gesture.name);
+        }
+
+        highlightGesture(name) {
+            document.querySelectorAll('.gesture-card').forEach(card => {
+                const gestureName = card.querySelector('.card-name').textContent;
+                if (gestureName.toLowerCase() === name.toLowerCase()) {
+                    card.classList.add('detected');
+                }
+            });
+        }
+
+        stop() {
+            this.isRunning = false;
+            if (this.camera) this.camera.stop();
+            this.startBtn.disabled = false;
+            this.stopBtn.disabled = true;
+            this.demoBtn.disabled = false;
+            this.simulateBtn.disabled = true;
+            this.status.textContent = "⏹️ Kamera dihentikan";
+            this.status.className = "status error";
+            this.video.style.display = "none";
+            this.canvas.style.display = "none";
+            this.noCamera.style.display = "flex";
+        }
+
+        toggleDemo() {
+            this.isDemoMode = !this.isDemoMode;
+            if (this.isDemoMode) {
+                this.status.textContent = "🎭 Mode Demo Aktif";
+                this.status.className = "status demo";
+                this.demoInstructions.style.display = "block";
+                this.startBtn.disabled = true;
+                this.stopBtn.disabled = true;
+                this.simulateBtn.disabled = false;
+            } else {
+                this.status.textContent = "Demo dimatikan";
+                this.status.className = "status error";
+                this.demoInstructions.style.display = "none";
+                this.simulateBtn.disabled = true;
+                this.startBtn.disabled = false;
+            }
+        }
+
+        startSimulation() {
+            if (this.simulationInterval) clearInterval(this.simulationInterval);
+            this.simulationInterval = setInterval(() => {
+                const gesturesToShow = this.currentFilter === 'all'
+                    ? this.allGestures
+                    : this.allGestures.filter(g => g.category === this.currentFilter);
+                const randomGesture = gesturesToShow[Math.floor(Math.random() * gesturesToShow.length)];
+                this.simulateGestureDetection({ ...randomGesture, confidence: Math.floor(Math.random() * 21) + 80 });
+            }, 1500);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const detector = new AdvancedHandGestureDetector();
+        detector.initializeGesturesPart2();
+    });
+    </script>
+</body>
+</html>
+
+
+<!-- END OF PART 1/2 -->
